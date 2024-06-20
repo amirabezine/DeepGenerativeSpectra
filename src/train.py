@@ -11,26 +11,28 @@ from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 
 # Custom modules
-from dataset2 import APOGEEDataset
-from model2 import Generator
+from BaseDataset import BaseHDF5Dataset
+from QuasarDataset import QuasarDataset
 from tqdm import tqdm
 from checkpoint import save_checkpoint, load_checkpoint
+from model import Generator
 
 
 def initialize_device():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    #device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
     print(f"Using device: {device}")
     return device
 
 def weighted_mse_loss(input, target, weight):
     assert input.shape == target.shape == weight.shape, f'Shapes of input {input.shape}, target {target.shape}, and weight {weight.shape} must match'
     # loss = torch.mean(weight * (input - target) ** 2) ###uncomment later, debugging
-    loss = torch.mean((input - target) ** 2)
+    loss = torch.mean(weight * (input - target) ** 2)
     return loss
 
 def load_configurations():
     config = get_config()
-    data_path = resolve_path(config['paths']['hdf5_data'])
+    data_path = resolve_path(config['datasets']['boss']['path'])
     checkpoints_path = resolve_path(config['paths']['checkpoints'])
     latent_path = resolve_path(config['paths']['latent'])
     plots_path = resolve_path(config['paths']['plots'])
@@ -49,7 +51,8 @@ def load_configurations():
 
 def prepare_datasets(config, data_path):
     print("Starting dataset...")
-    dataset = APOGEEDataset(data_path, max_files=config['training']['max_files'])
+    dataset = QuasarDataset(data_path, max_files=config['training']['max_files'])
+    print(dataset[10])
     print(f"Loaded: {config['training']['max_files']} .. start split")
     train_indices, val_indices = train_test_split(list(range(config['training']['max_files'])), test_size=config['training']['split_ratios'][1])
 
@@ -123,15 +126,16 @@ def train_and_validate(generator, latent_codes, optimizer_g, optimizer_l, schedu
         train_bar = tqdm(train_loader, desc=f"Training Epoch {epoch + 1}/{num_epochs}")
 
         for batch in train_bar:
-            indices = batch['index'].to(device, dtype=torch.long)
+            indices = batch['spectrum_index'].to(device, dtype=torch.long)
             flux = batch['flux'].to(device)
-            mask = batch['flux_mask'].to(device)
+            mask = batch['mask'].to(device)
             
           
             # Step 1: Optimize generator weights
             latent_codes.requires_grad_(False)  # Freeze latent codes  
             optimizer_g.zero_grad()
             generated = generator(latent_codes[indices])
+            print(len(generated))
             loss_g = weighted_mse_loss(generated, flux, mask)
             loss_g.backward()
             optimizer_g.step()  
@@ -175,9 +179,9 @@ def train_and_validate(generator, latent_codes, optimizer_g, optimizer_l, schedu
         val_bar = tqdm(val_loader, desc=f"Validation Epoch {epoch + 1}/{num_epochs}")
         with torch.no_grad():
             for batch in val_bar:
-                indices = batch['index'].to(device, dtype=torch.long)
+                indices = batch['spectrum_index'].to(device, dtype=torch.long)
                 flux = batch['flux'].to(device)
-                mask = batch['flux_mask'].to(device)
+                mask = batch['mask'].to(device)
 
                 generated = generator(latent_codes[indices])
                 val_loss = weighted_mse_loss(generated, flux, mask)
@@ -247,7 +251,9 @@ def main():
 
     print("preparing datasets")
     train_loader, val_loader = prepare_datasets(config, data_path)
+    print(len(train_loader))
 
+    
     print("initializing models and optimizers..")
     generator, latent_codes, optimizer_g, optimizer_l = initialize_models_and_optimizers(config, train_loader, device)
 

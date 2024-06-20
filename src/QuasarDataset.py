@@ -1,3 +1,6 @@
+import os
+import h5py
+import torch
 from BaseDataset import BaseHDF5Dataset
 
 class QuasarDataset(BaseHDF5Dataset):

@@ -4,22 +4,28 @@ import torch
 from torch.utils.data import Dataset, DataLoader, random_split
 from sklearn.model_selection import train_test_split
 
+def ensure_native_byteorder(array):
+    if array.dtype.byteorder not in ('=', '|'):  # '=' means native, '|' means not applicable
+        return array.byteswap().newbyteorder()  # Swap byte order to native
+    return array
+
 class BaseHDF5Dataset(Dataset):
     def __init__(self, hdf5_file, max_files=None):
         self.hdf5_file = hdf5_file
         self.f = h5py.File(hdf5_file, 'r')
-        self.files = list(self.f.keys())
+        self.file_names = self.f['file_names']
         if max_files:
-            self.files = self.files[:max_files]
+            self.file_names = self.file_names[:max_files]
+        self.files = list(self.file_names)
 
     def __getitem__(self, idx):
         with h5py.File(self.hdf5_file, 'r') as f:
             file = self.files[idx]
             # Load common attributes
-            flux = f[file]['flux'][:]
-            wavelength = f[file]['wavelength'][:]
-            mask = f[file]['mask'][:]
-            ivar = f[file]['ivar'][:]
+            flux = ensure_native_byteorder(f[file]['flux'][:])
+            wavelength = ensure_native_byteorder(f[file]['wavelength'][:])
+            mask = ensure_native_byteorder(f[file]['mask'][:])
+            ivar = ensure_native_byteorder(f[file]['ivar'][:])
             spectrum_index = f[file]['spectrum_index'][()]  # Read index
             
             data = {
